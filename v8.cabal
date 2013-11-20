@@ -1,0 +1,23 @@
+name:               v8
+version:            0.0.0
+license:            MIT
+license-file:       LICENSE-MIT
+copyright:          (c) 2013 Thiago de Arruda
+author:             Thiago de Arruda <tpadilha84@gmail.com>
+maintainer:         Thiago de Arruda <tpadilha84@gmail.com>
+build-type:         Custom
+cabal-version:      >= 1.10
+synopsis:           Haskell interface to Google's V8 JavaScript Engine
+
+source-repository head
+  type: git
+  location: https://github.com/tarruda/haskell-v8
+
+library
+  default-language: Haskell2010
+  extra-libraries:  v8_static pthread rt
+  c-sources:        cbits/haskell-v8.cpp
+  extra-lib-dirs:   .deps/lib
+  include-dirs:     .deps/include
+  hs-source-dirs:   src
+  build-depends:    base
