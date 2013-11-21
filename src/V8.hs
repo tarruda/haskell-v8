@@ -1,9 +1,8 @@
 {-# LANGUAGE ForeignFunctionInterface #-}
 
-module Main
+module V8
     ( 
-      main
-    , hello
+        hello
     )
   where
 
@@ -21,7 +20,3 @@ hello = do
     str <- peekCString cstr
     putStrLn str
     return ()
-
-
-main :: IO ()
-main = hello
