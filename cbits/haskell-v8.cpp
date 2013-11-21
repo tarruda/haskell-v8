@@ -27,7 +27,7 @@ char * hello() {
   Context::Scope context_scope(context);
 
   // Create a string containing the JavaScript source code.
-  Handle<String> source = String::New("'Hello' + ', World!'");
+  Handle<String> source = String::New("'Hello' + ', World!!!!'");
 
   // Compile the source code.
   Handle<Script> script = Script::Compile(source);

@@ -1,6 +1,6 @@
-import GHC.IO.Exception                   (ExitCode)
+import GHC.IO.Exception                   (ExitCode(ExitSuccess))
 import Data.List                          (intersperse, elemIndices,
-                                           splitAt)
+                                           splitAt, isSuffixOf)
 import Data.Map                           (fromList, Map, insert,
                                            findWithDefault, foldlWithKey)
 import Control.Monad                      (foldM)
@@ -31,40 +31,35 @@ main =
 -- | Build static library composed of cbits + native library
 buildLibrary :: String -> BuildInfo -> IO ()
 buildLibrary name bi = do
-    let outPath     = outDir ++ "/" ++ outFile
-        outDir      = "dist/build/objects"
-        outFile     = findOpt "-o" defaultName (ldOptions bi)
-        incDirs     = map ("-I"++) (includeDirs bi)
-        libDirs     = map ("-L"++) (extraLibDirs bi)
-        defaultName = "libHS" ++ name ++ ".so"
-        tsFile      = ".compilation-timestamps"
-
-    updatedTimestamps <- compile tsFile incDirs outDir
+    (srcs, hasCpp) <- sources
+    let outDir         = "dist/build/objects"
+        incDirs        = map ("-I"++) (includeDirs bi)
+        tsFile         = ".compilation-timestamps"
+        commands       = map (compileCommand incDirs outDir) srcs
+        objects        = map (\(_, args) -> findOpt "-o" "" args) commands
+    updatedTimestamps <- compile tsFile commands
     writeFile tsFile (serializeTimestamps updatedTimestamps)
+    linkAll hasCpp bi name objects
+    return ()
 
 
-compile :: String ->
-           [String] ->
-           String ->
-           IO (Map String Integer)
-compile tsFile incDirs outDir = do
+compile :: String -> [(String, [String])] -> IO (Map String Integer)
+compile tsFile commands = do
     exists <- doesFileExist tsFile
     if exists
         then do
             tsContents <- readFile tsFile
             let timestamps = parseTimestamps tsContents
-            sources >>= compileModified timestamps incDirs outDir
+            compileModified timestamps commands
         else
-            sources >>= compileModified (fromList []) incDirs outDir
+            compileModified (fromList []) commands
 
 
 compileModified :: Map String Integer ->
-                   [String] ->
-                   String ->
-                   [String] ->
+                   [(String, [String])] ->
                    IO (Map String Integer)
-compileModified timestamps includeDirs outDir =
-    (foldM exec timestamps) . (map (compileCommand includeDirs outDir))
+compileModified timestamps commands =
+    foldM exec timestamps commands
     where
         exec timestamps (cmd, args) = do
             let (outDir, _) = splitLast '/' outFile
@@ -77,34 +72,44 @@ compileModified timestamps includeDirs outDir =
             if pt /= findWithDefault 0 srcFile timestamps || not outExists
                 then do
                     putStrLn $ "Compile: " ++ srcFile ++ " -> " ++ outFile
-                    rawSystem cmd args
-                    return $ insert srcFile pt timestamps
+                    exitStatus <- rawSystem cmd args
+                    if exitStatus == ExitSuccess
+                        then return $ insert srcFile pt timestamps
+                        else return timestamps
                 else
                     return timestamps
 
 
-buildStaticLibrary :: String -> BuildInfo -> IO ExitCode
-buildStaticLibrary outPath bi =
-    rawSystem "g++" (
-                     ["-c", "-o", outPath]
-                     ++
-                     map ("-I"++) (includeDirs bi)
-                     ++
-                     map ("-L"++) (extraLibDirs bi)
-                     ++ 
-                     cSources bi
-                     ++
-                     map ("-l"++) (extraLibs bi)
+linkAll :: Bool -> BuildInfo -> String -> [String] -> IO ExitCode
+linkAll hasCpp bi name objects = do
+    let outDir         = "dist/build"
+        outLinked      = outDir ++ "/HS" ++ name ++ ".o"
+        outShared      = outDir ++ "/libHS" ++ name ++ ".so"
+        outStatic      = outDir ++ "/libHS" ++ name ++ ".a"
+        libDirs        = map ("-L"++) (extraLibDirs bi)
+        extraLibraries = map ("-l"++) (extraLibs bi)
+    -- rawSystem "ar"  ( -- static library
+    --                 ["cqs", "-o", outStatic] ++
+
+    --                 )
+    rawSystem "ghc" ( -- shared library
+                    ["-shared", "-o", outShared, "-lHSrts"] ++
+                    (if hasCpp then ["-lstdc++"] else []) ++
+                    libDirs ++
+                    extraLibraries ++
+                    objects
                     )
 
 
-sources :: IO [String]
+sources :: IO ([String], Bool)
 sources = do
     nativeSources <- Glob.globDir [cFiles, cppFiles] "cbits"
     haskellSources <- Glob.globDir [hsFiles] "src"
     let matched (xs, _) = concat xs
         rv = concat [matched nativeSources, matched haskellSources]
-    return rv
+        hasCpp = any isCpp rv
+        isCpp = isSuffixOf ".cpp"
+    return (rv, hasCpp)
 
 
 buildDeps :: Args -> ConfigFlags -> IO HookedBuildInfo
@@ -113,8 +118,8 @@ buildDeps _ _ = do
     return emptyHookedBuildInfo
 
 
--- pure functions
 
+-- pure functions
 
 serializeTimestamps :: Map String Integer -> String
 serializeTimestamps = foldlWithKey folder "" where
@@ -130,13 +135,26 @@ parseTimestamps = fromList . ((map (parseEntry . words)) . lines) where
 
 compileCommand :: [String] -> String -> String -> (String, [String])
 compileCommand includeDirs outDir filename =
-    (compiler, compilerArgs ++ ["-c", "-o", object, filename]) where
+    (compiler, compilerArgs ++ ["-fPIC", "-c", "-o", object, filename])
+    where
         (compiler, object) = compilerAndObject outDir filename
         compilerArgs | compiler /= "ghc" = includeDirs
-                     | otherwise = ["-ohi", interface] where
-                         interface = oDir ++ name ++ ".hi"
-                         (oDir, nameExt) = splitLast '/' object
-                         (name, _) = splitLast '.' nameExt
+                     | otherwise =
+                         [
+                           "-ohi"
+                         , interface
+                         , "-hidir"
+                         , outDir ++ "/src"
+                         , "-split-objs"
+                         ]
+                         where
+                             interface = oDir ++ name ++ ".hi"
+                             (oDir, nameExt) = splitLast '/' object
+                             (name, _) = splitLast '.' nameExt
+
+
+dirname :: String -> String
+dirname str = let (dir, _) = splitLast '/' str in dir
 
 
 compilerAndObject :: String -> String -> (String, String)

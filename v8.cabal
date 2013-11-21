@@ -16,7 +16,7 @@ source-repository head
 library
   default-language: Haskell2010
   exposed-modules:  V8
-  extra-libraries:  v8_static pthread rt
+  extra-libraries:  v8_static rt pthread
   extra-lib-dirs:   .deps/lib
   include-dirs:     .deps/include
   build-depends:    base, Glob
