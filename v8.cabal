@@ -1,22 +1,39 @@
+-- This file was based on haskell's binding to libcurl:
+-- https://github.com/GaloisInc/curl/blob/master/curl.cabal
 name:               v8
-version:            0.0.0
+version:            3.23.6.1
+synopsis:           Haskell binding to the v8 javascript engine
+description:
+    V8 is a google's super-fast javascript engine. It is the engine powering
+    google chrome and node.js.
+
+    This package provides a haskell-friendly interface to V8, making it easy 
+    for haskell programs to use javascript as an embedded language.
+category:           Language
 license:            MIT
 license-file:       LICENSE-MIT
-copyright:          (c) 2013 Thiago de Arruda
 author:             Thiago de Arruda <tpadilha84@gmail.com>
-maintainer:         Thiago de Arruda <tpadilha84@gmail.com>
-build-type:         Custom
-cabal-version:      >= 1.10
-synopsis:           Haskell interface to Google's V8 JavaScript Engine
+build-type:         Configure
+cabal-version:      >= 1.6
 
-source-repository head
-  type: git
-  location: https://github.com/tarruda/haskell-v8
+flag new-base
+  Description: Build with new smaller base library
+  Default: False
 
 library
-  default-language: Haskell2010
-  exposed-modules:  V8
-  extra-libraries:  v8_static pthread rt
-  extra-lib-dirs:   .deps/lib
-  include-dirs:     .deps/include
-  build-depends:    base, Glob
+  Exposed-modules:  V8
+  hs-source-dirs:   src
+  c-sources:        cbits/haskell-v8.cpp
+  Extra-libraries:  v8 pthread rt
+  Extensions:       ForeignFunctionInterface
+  Ghc-options:      -Wall
+
+  Build-Depends: base
+  if flag(new-base)
+    Build-depends: base >= 3 && < 5, containers
+  else
+    Build-depends: base < 3
+
+source-repository head
+  type:     git
+  location: https://github.com/tarruda/haskell-v8.git
