@@ -2,21 +2,32 @@
 
 module V8
     ( 
-        hello
+        newContext
+    ,   evalInContext
     )
   where
 
+
+import Foreign.Ptr
 import Foreign.C.Types
 import Foreign.C.String
 
 
-foreign import ccall "hello"
-  c_hello :: IO CString
+type V8Context = Ptr ()
+type V8Value = Ptr ()
 
 
-hello :: IO ()
-hello = do
-    cstr <- c_hello
-    str <- peekCString cstr
-    putStrLn str
-    return ()
+newContext :: IO V8Context
+newContext = c_new_context
+
+
+evalInContext :: String -> V8Context -> IO V8Value
+evalInContext str ctx = newCString str >>= (`c_eval_in_context` ctx)
+
+
+foreign import ccall safe "cbits/haskell-v8.h new_context" 
+  c_new_context :: IO V8Context
+
+
+foreign import ccall safe "cbits/haskell-v8.h eval_in_context" 
+  c_eval_in_context :: CString -> V8Context -> IO V8Value
