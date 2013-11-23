@@ -5,20 +5,41 @@
 #include "haskell-v8.h"
 
 
-Isolate *isolate = NULL;
+void free_isolate(Isolate *isolate) {
+  isolate_data *data = get_isolate_data(isolate);
 
-V8Handle<Context> * new_context() {
-  if (isolate == NULL) {
-    isolate = Isolate::New();
+  if (data->ref_count == 0) {
+    fprintf(stderr, "Disposing isolate\n");
+    isolate->Dispose();
+  } else {
+    fprintf(stderr, "Cannot dispose isolate due to pending refs\n");
+    data->should_dispose = 1;
   }
-
-  isolate->Enter();
-  HandleScope handle_scope(isolate);
-
-  return new V8Handle<Context>(isolate, Context::New(isolate));
 }
 
-V8Handle<Value> * eval_in_context(char *str, V8Handle<Context> *c) {
+
+void free_context(V8Ref<Context> *handle) { delete handle; }
+void free_value(V8Ref<Value> *handle) { delete handle; }
+
+
+Isolate * new_isolate() {
+  return Isolate::New();
+}
+
+
+V8Ref<Context> * new_context(Isolate *isolate) {
+  Locker locker(isolate);
+  Isolate::Scope isolate_scope(isolate);
+  HandleScope handle_scope(isolate);
+
+  return new V8Ref<Context>(isolate, Context::New(isolate));
+}
+
+
+V8Ref<Value> * eval_in_context(char *str, V8Ref<Context> *c) {
+  Isolate *isolate = c->isolate;
+  Locker locker(isolate);
+  Isolate::Scope isolate_scope(isolate);
   HandleScope handle_scope(isolate);
   Local<Context> context = Local<Context>::New(isolate, c->handle);
   Context::Scope context_scope(context);
@@ -26,7 +47,7 @@ V8Handle<Value> * eval_in_context(char *str, V8Handle<Context> *c) {
   Handle<Script> script = Script::Compile(source);
   Handle<Value> result = script->Run();
 
-  return new V8Handle<Value>(isolate, result);
+  return new V8Ref<Value>(isolate, result);
 }
 //
 //char * hello() {
