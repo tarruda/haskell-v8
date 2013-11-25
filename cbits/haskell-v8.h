@@ -1,8 +1,9 @@
 #ifndef __HASKELL_V8_
-#define __HASKELL_V8_ value
+#define __HASKELL_V8_
 
-#include <cstdio>
 #include <v8.h>
+
+#include "./include/haskell-v8-common.h"
 
 using namespace v8;
 
@@ -34,7 +35,7 @@ public:
     isolate_data *data = get_isolate_data(isolate);
     data->ref_count++;
     // Make a persistent reference to the object
-    handle.Reset(isolate, h);
+    handle.Reset(i, h);
   }
 
   ~V8Ref() {
@@ -55,7 +56,6 @@ public:
     // If haskell already freed the isolate and this was the
     // last object holding a reference to it, dispose and free the isolate
     if (data->should_dispose == 1 && data->ref_count == 0) {
-      fprintf(stderr, "No more references, disposing isolate\n");
       isolate->Dispose();
     }
   }
@@ -65,16 +65,32 @@ public:
 };
 
 
+class V8Object {
+public:
+  V8Object(V8Ref<Value> *v, V8Ref<Context> *c) : value(v), context(c) { }
+
+  ~V8Object() {
+    delete value;
+    // No need to delete the context as it will be done automatically
+    // by haskell's garbage collector
+  }
+
+  V8Ref<Value> *value;
+  V8Ref<Context> *context;
+};
+
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 extern void free_isolate(Isolate *);
 extern void free_context(V8Ref<Context> *);
-extern void free_value(V8Ref<Value> *);
+extern void free_value(V8Object *);
 extern Isolate * new_isolate();
-extern V8Ref<Context> * new_context(Isolate *isolate);
-extern V8Ref<Value> * eval_in_context(char *, V8Ref<Context> *);
+extern V8Ref<Context> * new_context(Isolate *);
+extern type_value * eval_in_context(char *, V8Ref<Context> *);
+char * v8_to_string(V8Object *);
 
 #ifdef __cplusplus
 }

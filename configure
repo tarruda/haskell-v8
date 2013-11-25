@@ -50,5 +50,7 @@ fi
 
 cat > "$pkgroot/v8.buildinfo" << EOF
 extra-lib-dirs: $prefix/lib
-include-dirs:   $prefix/include
+include-dirs:
+	$prefix/include
+	$pkgroot/cbits/include
 EOF
