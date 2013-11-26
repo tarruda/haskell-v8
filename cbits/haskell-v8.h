@@ -36,6 +36,8 @@ public:
     data->ref_count++;
     // Make a persistent reference to the object
     handle.Reset(i, h);
+    ref_count = 0;
+    should_dispose = 0;
   }
 
   ~V8Ref() {
@@ -62,17 +64,26 @@ public:
 
   Persistent<T> handle;
   Isolate *isolate;
+  int ref_count;
+  int should_dispose;
 };
 
 
 class V8Object {
 public:
-  V8Object(V8Ref<Value> *v, V8Ref<Context> *c) : value(v), context(c) { }
+  V8Object(V8Ref<Value> *v, V8Ref<Context> *c) : value(v), context(c) {
+    context->ref_count++;
+  }
 
   ~V8Object() {
     delete value;
-    // No need to delete the context as it will be done automatically
-    // by haskell's garbage collector
+    context->ref_count--;
+
+    if (context->ref_count == 0 && context->should_dispose) {
+      // Only delete the context if no more objects point to it and haskell
+      // already invoked the deallocator
+      delete context;
+    }
   }
 
   V8Ref<Value> *value;
@@ -89,7 +100,7 @@ extern void free_context(V8Ref<Context> *);
 extern void free_value(V8Object *);
 extern Isolate * new_isolate();
 extern V8Ref<Context> * new_context(Isolate *);
-extern type_value * eval_in_context(char *, V8Ref<Context> *);
+extern v8_result * eval_in_context(char *, V8Ref<Context> *);
 char * v8_to_string(V8Object *);
 
 #ifdef __cplusplus

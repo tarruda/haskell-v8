@@ -12,7 +12,6 @@
 
 typedef struct {
   int type;
+  int thrown;
   void *value;
-} type_value;
-
-
+} v8_result;

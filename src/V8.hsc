@@ -5,6 +5,7 @@ module V8
         newIsolate
     ,   newContext
     ,   evalInContext
+    ,   toString
     )
   where
 
@@ -15,13 +16,11 @@ import Foreign.Storable
 import Foreign.ForeignPtr
 import Foreign.C.Types
 import Foreign.C.String
-import System.IO.Unsafe
 
 #include <haskell-v8-common.h>
 
-newtype V8Isolate = V8Isolate (ForeignPtr ())
-newtype V8Context = V8Context (ForeignPtr ())
-
+newtype V8Isolate = V8Isolate (ForeignPtr ()) deriving (Show)
+newtype V8Context = V8Context (ForeignPtr ()) deriving (Show)
 newtype V8Undefined = V8Undefined (ForeignPtr ())
 newtype V8Null = V8Null (ForeignPtr ())
 newtype V8True = V8True (ForeignPtr ())
@@ -33,6 +32,7 @@ newtype V8Object = V8Object (ForeignPtr ())
 newtype V8RegExp = V8RegExp (ForeignPtr ())
 newtype V8Date = V8Date (ForeignPtr ())
 newtype V8Unknown = V8Unknown (ForeignPtr ())
+-- newtype V8Exception = V8Exception (ForeignPtr ())
 
 
 data JSValue =
@@ -46,11 +46,8 @@ data JSValue =
     |   JSObject V8Object
     |   JSRegExp V8RegExp
     |   JSDate V8Date
+    -- |   JSException V8Exception
     |   JSUnknown V8Unknown
-
-
-instance Show JSValue where
-    show = unsafePerformIO . v8ToString
 
 
 newIsolate :: IO V8Isolate
@@ -69,30 +66,52 @@ newContext (V8Isolate fIsoPtr) = withForeignPtr fIsoPtr newCtx
             return $ V8Context fCtxPtr
 
 
-evalInContext :: String -> V8Context -> IO JSValue
+evalInContext :: String -> V8Context -> IO (Either JSValue JSValue)
 evalInContext str (V8Context fCtxPtr) = withForeignPtr fCtxPtr eval
     where
         eval ctxPtr = do
             cStr <- newCString str
             typeValPtr <- c_eval_in_context cStr ctxPtr
-            (TypeValue t valPtr) <- peek typeValPtr
+            (V8Result typ isException valPtr) <- peek typeValPtr
             fValPtr <- newForeignPtr c_free_value valPtr
-            return $ case t of
-                #{const V8TYPE_UNDEFINED} -> JSUndefined (V8Undefined fValPtr)
-                #{const V8TYPE_NULL}      -> JSNull (V8Null fValPtr)
-                #{const V8TYPE_TRUE}      -> JSTrue (V8True fValPtr)
-                #{const V8TYPE_FALSE}     -> JSFalse (V8False fValPtr)
-                #{const V8TYPE_NUMBER}    -> JSNumber (V8Number fValPtr)
-                #{const V8TYPE_STRING}    -> JSString (V8String fValPtr)
-                #{const V8TYPE_ARRAY}     -> JSArray (V8Array fValPtr)
-                #{const V8TYPE_OBJECT}    -> JSObject (V8Object fValPtr)
-                #{const V8TYPE_REGEXP}    -> JSRegExp (V8RegExp fValPtr)
-                #{const V8TYPE_DATE}      -> JSDate (V8Date fValPtr)
-                _                         -> JSUnknown (V8Unknown fValPtr)
+            return $ case typ of
+                #{const V8TYPE_UNDEFINED} -> if isException == 1
+                    then Left (JSUndefined (V8Undefined fValPtr))
+                    else Right (JSUndefined (V8Undefined fValPtr))
+                #{const V8TYPE_NULL}      -> if isException == 1
+                    then Left (JSNull (V8Null fValPtr))
+                    else Right (JSNull (V8Null fValPtr))
+                #{const V8TYPE_TRUE}      -> if isException == 1
+                    then Left (JSTrue (V8True fValPtr))
+                    else Right (JSTrue (V8True fValPtr))
+                #{const V8TYPE_FALSE}     -> if isException == 1
+                    then Left (JSFalse (V8False fValPtr))
+                    else Right (JSFalse (V8False fValPtr))
+                #{const V8TYPE_NUMBER}    -> if isException == 1
+                    then Left (JSNumber (V8Number fValPtr))
+                    else Right (JSNumber (V8Number fValPtr))
+                #{const V8TYPE_STRING}    -> if isException == 1
+                    then Left (JSString (V8String fValPtr))
+                    else Right (JSString (V8String fValPtr))
+                #{const V8TYPE_ARRAY}     -> if isException == 1
+                    then Left (JSArray (V8Array fValPtr))
+                    else Right (JSArray (V8Array fValPtr))
+                #{const V8TYPE_OBJECT}    -> if isException == 1
+                    then Left (JSObject (V8Object fValPtr))
+                    else Right (JSObject (V8Object fValPtr))
+                #{const V8TYPE_REGEXP}    -> if isException == 1
+                    then Left (JSRegExp (V8RegExp fValPtr))
+                    else Right (JSRegExp (V8RegExp fValPtr))
+                #{const V8TYPE_DATE}      -> if isException == 1
+                    then Left (JSDate (V8Date fValPtr))
+                    else Right (JSDate (V8Date fValPtr))
+                _                         -> if isException == 1
+                    then Left (JSUnknown (V8Unknown fValPtr))
+                    else Right (JSUnknown (V8Unknown fValPtr))
 
 
-v8ToString :: JSValue -> IO String
-v8ToString = toStr
+toString :: JSValue -> IO String
+toString = toStr
     where
         toStr (JSUndefined (V8Undefined fValPtr)) = marshalPtr fValPtr
         toStr (JSNull (V8Null fValPtr)) = marshalPtr fValPtr
@@ -104,15 +123,13 @@ v8ToString = toStr
         toStr (JSObject (V8Object fValPtr)) = marshalPtr fValPtr
         toStr (JSRegExp (V8RegExp fValPtr)) = marshalPtr fValPtr
         toStr (JSDate (V8Date fValPtr)) = marshalPtr fValPtr
-        toStr _ = return "<Uknown V8 type>"
+        toStr _ = return "<Unknown V8 type>"
         marshalPtr fValPtr = withForeignPtr fValPtr withPtr
         withPtr valPtr = do
             cstr <- c_v8_to_string valPtr
             rv <- peekCString cstr
             free cstr
             return rv
-
-
 
 
 foreign import ccall "cbits/haskell-v8.h &free_isolate"
@@ -136,7 +153,7 @@ foreign import ccall safe "cbits/haskell-v8.h new_context"
 
 
 foreign import ccall safe "cbits/haskell-v8.h eval_in_context" 
-  c_eval_in_context :: CString -> Ptr () -> IO (Ptr TypeValue)
+  c_eval_in_context :: CString -> Ptr () -> IO (Ptr V8Result)
 
 
 foreign import ccall safe "cbits/haskell-v8.h v8_to_string" 
@@ -144,15 +161,17 @@ foreign import ccall safe "cbits/haskell-v8.h v8_to_string"
 
 
 
-data TypeValue = TypeValue CInt (Ptr ())
+data V8Result = V8Result CInt CInt (Ptr ())
 
-instance Storable TypeValue where
-    sizeOf _ = (#size type_value)
+instance Storable V8Result where
+    sizeOf _ = (#size v8_result)
     alignment _ = alignment (undefined :: CInt)
     peek ptr = do
-        type' <- (#peek type_value, type) ptr
-        value' <- (#peek type_value, value) ptr
-        return $ TypeValue type' value'
-    poke ptr (TypeValue type' value') = do
-        (#poke type_value, type) ptr type'
-        (#poke type_value, value) ptr value'
+        type' <- (#peek v8_result, type) ptr
+        thrown' <- (#peek v8_result, thrown) ptr
+        value' <- (#peek v8_result, value) ptr
+        return $ V8Result type' thrown' value'
+    poke ptr (V8Result type' thrown' value') = do
+        (#poke v8_result, type) ptr type'
+        (#poke v8_result, thrown) ptr thrown'
+        (#poke v8_result, value) ptr value'

@@ -1,5 +1,4 @@
 #include <cstdlib>
-#include <cstdio>
 
 #include "haskell-v8.h"
 
@@ -15,7 +14,14 @@ void free_isolate(Isolate *isolate) {
 }
 
 
-void free_context(V8Ref<Context> *handle) { delete handle; }
+void free_context(V8Ref<Context> *handle) {
+  if (handle->ref_count == 0) {
+    delete handle;
+  } else {
+    handle->should_dispose = 1;
+  }
+}
+
 void free_value(V8Object *handle) { delete handle; }
 
 
@@ -33,7 +39,7 @@ V8Ref<Context> * new_context(Isolate *isolate) {
 }
 
 
-type_value * eval_in_context(char *str, V8Ref<Context> *c) {
+v8_result * eval_in_context(char *str, V8Ref<Context> *c) {
   Isolate *isolate = c->isolate;
   Locker locker(isolate);
   Isolate::Scope isolate_scope(isolate);
@@ -41,10 +47,25 @@ type_value * eval_in_context(char *str, V8Ref<Context> *c) {
   Local<Context> context = Local<Context>::New(isolate, c->handle);
   Context::Scope context_scope(context);
   Handle<String> source = String::New(str);
-  Handle<Script> script = Script::Compile(source);
-  Handle<Value> result = script->Run();
+  Handle<Value> result;
 
-  type_value *rv = (type_value *)malloc(sizeof(type_value));
+  v8_result *rv = (v8_result *)malloc(sizeof(v8_result));
+  rv->thrown = 0;
+
+  TryCatch tryCatch;
+  Handle<Script> script = Script::Compile(source);
+
+  if (script.IsEmpty()) {
+    result = tryCatch.Exception();
+    rv->thrown = 1;
+  } else {
+    result = script->Run();
+    if (result.IsEmpty()) {
+      result = tryCatch.Exception();
+      rv->thrown = 1;
+    }
+  }
+
   rv->value = new V8Object(new V8Ref<Value>(isolate, result), c);
 
   if (result->IsUndefined())
@@ -61,14 +82,12 @@ type_value * eval_in_context(char *str, V8Ref<Context> *c) {
     rv->type = V8TYPE_STRING;
   else if (result->IsArray())
     rv->type = V8TYPE_ARRAY;
-  else if (result->IsObject())
-    rv->type = V8TYPE_OBJECT;
   else if (result->IsRegExp())
     rv->type = V8TYPE_REGEXP;
   else if (result->IsDate())
     rv->type = V8TYPE_DATE;
   else
-    rv->type = -1;
+    rv->type = V8TYPE_OBJECT;
 
   return rv;
 }
